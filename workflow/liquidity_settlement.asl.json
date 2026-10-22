@@ -1,0 +1,87 @@
+{
+  "Comment": "ClearPay liquidity-aware settlement workflow",
+  "StartAt": "CollectPending",
+  "States": {
+    "CollectPending": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${CollectPendingFunctionArn}",
+        "Payload": {
+          "start_time.$": "$$.Execution.StartTime"
+        }
+      },
+      "ResultPath": "$.collection",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "WindowFailed"
+        }
+      ],
+      "Next": "AnyPending"
+    },
+    "AnyPending": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.collection.Payload.count",
+          "NumericGreaterThan": 0,
+          "Next": "SettlePending"
+        }
+      ],
+      "Default": "NothingToSettle"
+    },
+    "SettlePending": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SettlePendingFunctionArn}",
+        "Payload.$": "$.collection.Payload"
+      },
+      "ResultPath": "$.settlement",
+      "OutputPath": "$.settlement.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "WindowFailed"
+        }
+      ],
+      "End": true
+    },
+    "NothingToSettle": {
+      "Type": "Succeed"
+    },
+    "WindowFailed": {
+      "Type": "Fail",
+      "Error": "LiquiditySettlementFailed",
+      "Cause": "Liquidity-aware settlement failed after retries"
+    }
+  }
+}

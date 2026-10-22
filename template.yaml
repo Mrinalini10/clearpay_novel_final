@@ -1,0 +1,374 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: ClearPay - payment clearing and reconciliation engine
+
+Parameters:
+  ApiKey:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+  ChaosFailRate:
+    Type: String
+    Default: "0"
+  FinalizeChaos:
+    Type: String
+    Default: "0"
+  LiquidityBatchMode:
+    Type: String
+    Default: "0"
+    AllowedValues: ["0", "1"]
+    Description: Set to "1" to disable SQS poster and use the liquidity-aware settlement workflow instead
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures:
+      - arm64
+    CodeUri: src/
+    MemorySize: 256
+    Timeout: 30
+    Environment:
+      Variables:
+        PAYMENTS_TABLE: !Ref PaymentsTable
+        ACCOUNTS_TABLE: !Ref AccountsTable
+        LEDGER_TABLE: !Ref LedgerTable
+        SETTLEMENTS_TABLE: !Ref SettlementsTable
+        QUEUE_URL: !Ref PaymentsQueue
+        DATA_BUCKET: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+        API_KEY: !Ref ApiKey
+        CHAOS_FAIL_RATE: !Ref ChaosFailRate
+        LIQUIDITY_BATCH_MODE: !Ref LiquidityBatchMode
+
+Conditions:
+  PosterActive: !Equals [!Ref LiquidityBatchMode, "0"]
+
+Resources:
+
+  # ---------- DynamoDB storage ----------
+
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: payment_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: posted_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: payment_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: StatusPostedIndex
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: posted_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  AccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: account_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: account_id
+          KeyType: HASH
+
+  LedgerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: account_id
+          AttributeType: S
+        - AttributeName: entry_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: account_id
+          KeyType: HASH
+        - AttributeName: entry_id
+          KeyType: RANGE
+
+  SettlementsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: window_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: window_id
+          KeyType: HASH
+
+  # ---------- S3 storage ----------
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ---------- SQS queues ----------
+
+  PaymentsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  PaymentsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PaymentsDLQ.Arn
+        maxReceiveCount: 3
+
+  # ---------- API Gateway ----------
+
+  Api:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.ingest.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt PaymentsQueue.QueueName
+      Events:
+        Post:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /payments
+            Method: POST
+
+  GetPaymentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.get_payment.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PaymentsTable
+      Events:
+        Get:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /payments/{payment_id}
+            Method: GET
+
+  # ---------- Atomic ledger posting ----------
+
+  PosterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.poster.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AccountsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref LedgerTable
+        - SQSPollerPolicy:
+            QueueName: !GetAtt PaymentsQueue.QueueName
+      Events:
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt PaymentsQueue.Arn
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+            ScalingConfig:
+              MaximumConcurrency: 5
+    Condition: PosterActive
+
+  # ---------- Settlement workers ----------
+
+  CollectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.collect.handler
+      Timeout: 120
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PaymentsTable
+        - S3CrudPolicy:
+            BucketName: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+
+  NetFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.net.handler
+      Timeout: 120
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SettlementsTable
+        - S3CrudPolicy:
+            BucketName: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+
+  FinalizeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.finalize.handler
+      Timeout: 300
+      Environment:
+        Variables:
+          CHAOS_FINALIZE_MIDWAY: !Ref FinalizeChaos
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SettlementsTable
+        - S3CrudPolicy:
+            BucketName: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+
+  SettlementStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CollectFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref NetFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref FinalizeFunction
+      Events:
+        HourlySettlement:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(1 hour)
+            State: DISABLED
+            Input: "{}"
+      Definition:
+        StartAt: CollectBatch
+        States:
+          CollectBatch:
+            Type: Task
+            Resource: !GetAtt CollectFunction.Arn
+            Parameters:
+              start_time.$: $$.Execution.StartTime
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: WindowFailed
+            Next: AnyPayments
+
+          AnyPayments:
+            Type: Choice
+            Choices:
+              - Variable: $.count
+                NumericGreaterThan: 0
+                Next: NetPositions
+            Default: NothingToSettle
+
+          NothingToSettle:
+            Type: Succeed
+
+          NetPositions:
+            Type: Task
+            Resource: !GetAtt NetFunction.Arn
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: WindowFailed
+            Next: FinalizeWindow
+
+          FinalizeWindow:
+            Type: Task
+            Resource: !GetAtt FinalizeFunction.Arn
+            Retry:
+              - ErrorEquals:
+                  - States.ALL
+                IntervalSeconds: 3
+                MaxAttempts: 3
+                BackoffRate: 2
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                Next: WindowFailed
+            End: true
+
+          WindowFailed:
+            Type: Fail
+            Error: SettlementFailed
+            Cause: A settlement step failed after retries
+
+  # ---------- Statement reconciliation ----------
+
+  ReconcileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: handlers.reconcile.handler
+      Timeout: 120
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PaymentsTable
+        - S3CrudPolicy:
+            BucketName: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"
+      Events:
+        Statement:
+          Type: S3
+          Properties:
+            Bucket: !Ref DataBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: statements/
+
+Outputs:
+  ApiUrl:
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com"
+  PaymentsTable:
+    Value: !Ref PaymentsTable
+  AccountsTable:
+    Value: !Ref AccountsTable
+  LedgerTable:
+    Value: !Ref LedgerTable
+  SettlementsTable:
+    Value: !Ref SettlementsTable
+  QueueUrl:
+    Value: !Ref PaymentsQueue
+  DlqUrl:
+    Value: !Ref PaymentsDLQ
+  DlqArn:
+    Value: !GetAtt PaymentsDLQ.Arn
+  StateMachineArn:
+    Value: !Ref SettlementStateMachine
+  BucketName:
+    Value: !Sub "clearpay-data-${AWS::AccountId}-${AWS::Region}"

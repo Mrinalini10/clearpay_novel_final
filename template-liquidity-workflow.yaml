@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: ClearPay inactive liquidity-aware settlement workflow
+
+Parameters:
+  PaymentsTableName:
+    Type: String
+  AccountsTableName:
+    Type: String
+  LedgerTableName:
+    Type: String
+  SettlementsTableName:
+    Type: String
+  DataBucketName:
+    Type: String
+
+Resources:
+  CollectPendingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.collect_pending.handler
+      Runtime: python3.12
+      Architectures:
+        - arm64
+      MemorySize: 256
+      Timeout: 120
+      Environment:
+        Variables:
+          PAYMENTS_TABLE: !Ref PaymentsTableName
+          DATA_BUCKET: !Ref DataBucketName
+          SETTLEMENTS_TABLE: !Ref SettlementsTableName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTableName}"
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+                - dynamodb:GetItem
+              Resource: !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${SettlementsTableName}"
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}/windows/*"
+
+  SettlePendingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: handlers.settle_pending.handler
+      Runtime: python3.12
+      Architectures:
+        - arm64
+      MemorySize: 256
+      Timeout: 300
+      Environment:
+        Variables:
+          LIQUIDITY_BATCH_MODE: "1"
+          PAYMENTS_TABLE: !Ref PaymentsTableName
+          ACCOUNTS_TABLE: !Ref AccountsTableName
+          LEDGER_TABLE: !Ref LedgerTableName
+          DATA_BUCKET: !Ref DataBucketName
+          SETTLEMENTS_TABLE: !Ref SettlementsTableName
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+              Resource:
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTableName}"
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AccountsTableName}"
+            - Effect: Allow
+              Action:
+                - dynamodb:UpdateItem
+              Resource:
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTableName}"
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AccountsTableName}"
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource:
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${LedgerTableName}"
+            - Effect: Allow
+              Action:
+                - dynamodb:DeleteItem
+              Resource:
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${SettlementsTableName}"
+            - Effect: Allow
+              Action:
+                - dynamodb:ConditionCheckItem
+                - dynamodb:TransactWriteItems
+              Resource:
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTableName}"
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AccountsTableName}"
+                - !Sub "arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${LedgerTableName}"
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+              Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}/windows/*"
+
+  LiquiditySettlementStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Type: STANDARD
+      DefinitionUri: workflow/liquidity_settlement.asl.json
+      DefinitionSubstitutions:
+        CollectPendingFunctionArn: !GetAtt CollectPendingFunction.Arn
+        SettlePendingFunctionArn: !GetAtt SettlePendingFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref CollectPendingFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SettlePendingFunction
+
+Outputs:
+  LiquiditySettlementStateMachineArn:
+    Value: !Ref LiquiditySettlementStateMachine
+  CollectPendingFunctionArn:
+    Value: !GetAtt CollectPendingFunction.Arn
+  SettlePendingFunctionArn:
+    Value: !GetAtt SettlePendingFunction.Arn

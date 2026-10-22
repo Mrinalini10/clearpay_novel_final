@@ -1,0 +1,16 @@
+{
+  "python.analysis.extraPaths": [
+    "c:/Users/an705/Documents/Andrea/vit/internship/3rd yr projects/CAD/src",
+    "c:/Users/an705/Documents/Andrea/vit/internship/3rd yr projects/CAD/benchmark",
+    "${workspaceFolder}/src",
+    "./src",
+    "src"
+  ],
+  "python.autoComplete.extraPaths": [
+    "c:/Users/an705/Documents/Andrea/vit/internship/3rd yr projects/CAD/src",
+    "c:/Users/an705/Documents/Andrea/vit/internship/3rd yr projects/CAD/benchmark",
+    "${workspaceFolder}/src",
+    "./src",
+    "src"
+  ]
+}

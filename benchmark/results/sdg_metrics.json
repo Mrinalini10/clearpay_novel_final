@@ -1,0 +1,70 @@
+[
+  {
+    "metric": "settlement_completion_improvement",
+    "sdg_target": "9.1, 9.5",
+    "description": "Average improvement in settled payment value (%) when using the removal heuristic vs all-or-nothing baseline at 30%, 50%, and 70% liquidity levels.",
+    "avg_improvement_pct_points": 29.3,
+    "avg_aon_settled_pct": 70.0,
+    "avg_rh_settled_pct": 99.3,
+    "trials": 60
+  },
+  {
+    "metric": "deferred_payment_w2_recovery",
+    "sdg_target": "9.1",
+    "description": "Average % of payments deferred in W1 (30% liquidity) that successfully settle in W2 (120% liquidity top-up).",
+    "avg_w2_recovery_pct": 100.0,
+    "trials": 18
+  },
+  {
+    "metric": "liquidity_efficiency",
+    "sdg_target": "9.5",
+    "description": "Net liquidity consumed per 1,000 paise settled (lower = more efficient). Tested at 50% liquidity.",
+    "avg_efficiency_paise_per_1k": {
+      "all_or_nothing": 130.32,
+      "greedy_cumulative": 132.05,
+      "removal_heuristic": 135.69
+    },
+    "trials": 20
+  },
+  {
+    "metric": "reconciliation_detection_accuracy",
+    "sdg_target": "8.10",
+    "description": "Proportion of deliberately injected reconciliation discrepancies detected by the automated reconciliation module.",
+    "injected_discrepancies": 14,
+    "detected_discrepancies": 14,
+    "detection_rate_pct": 100.0,
+    "exception_breakdown": {
+      "DUPLICATE": 2,
+      "AMOUNT_MISMATCH": 4,
+      "MISSING_IN_LEDGER": 3,
+      "MISSING_IN_STATEMENT": 5
+    }
+  },
+  {
+    "metric": "processing_throughput",
+    "sdg_target": "8.2",
+    "description": "Payments evaluated per second by the removal heuristic on local hardware (no AWS).",
+    "throughput_by_size": [
+      {
+        "n": 100,
+        "payments_per_second": 1195214.0
+      },
+      {
+        "n": 500,
+        "payments_per_second": 1418271.0
+      },
+      {
+        "n": 1000,
+        "payments_per_second": 1409028.0
+      },
+      {
+        "n": 5000,
+        "payments_per_second": 1427467.0
+      },
+      {
+        "n": 10000,
+        "payments_per_second": 1411815.0
+      }
+    ]
+  }
+]

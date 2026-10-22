@@ -1,0 +1,37 @@
+.venv/
+.aws-sam/
+__pycache__/
+*.py[cod]
+*.csv
+samconfig.toml
+.env
+.DS_Store
+.pytest_cache/
+
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# AWS
+.aws-sam/
+aws_credentials
+credentials
+samconfig.toml
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*.json
+
+# Mac
+.DS_Store
+
+# Node
+node_modules/

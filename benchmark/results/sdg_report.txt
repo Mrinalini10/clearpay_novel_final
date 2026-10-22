@@ -1,0 +1,78 @@
+----------------------------------------------------------------------
+ClearPay -- SDG Alignment Report
+Generated : 2026-10-21
+Platform  : Local Python (no AWS calls)
+======================================================================
+
+DISCLAIMER: ClearPay is a simulated prototype. The metrics
+below demonstrate technical contributions relevant to the
+stated SDG targets. They do not measure real-world banking
+outcomes, GDP impact, or financial inclusion.
+
+----------------------------------------------------------------------
+SDG 9 -- Industry, Innovation and Infrastructure
+  Target 9.1: Reliable and resilient digital financial infrastructure
+  Target 9.5: Technological innovation and enhancement of capabilities
+----------------------------------------------------------------------
+SDG 8 -- Decent Work and Economic Growth
+  Target 8.10: Strengthen financial institutions
+  Target 8.2: Productivity through technological upgrading
+
+----------------------------------------------------------------------
+MEASURED INDICATORS
+----------------------------------------------------------------------
+
+[settlement_completion_improvement]
+  SDG target : 9.1, 9.5
+  Description: Average improvement in settled payment value (%) when using the removal heuristic vs all-or-nothing baseline at 30%, 50%, and 70% liquidity levels.
+  All-or-Nothing avg settled : 70.0%
+  Removal Heuristic avg settled: 99.3%
+  Average improvement        : +29.3 percentage points
+  Trials                     : 60
+
+[deferred_payment_w2_recovery]
+  SDG target : 9.1
+  Description: Average % of payments deferred in W1 (30% liquidity) that successfully settle in W2 (120% liquidity top-up).
+  W2 recovery rate           : 100.0%
+  Trials                     : 18
+
+[liquidity_efficiency]
+  SDG target : 9.5
+  Description: Net liquidity consumed per 1,000 paise settled (lower = more efficient). Tested at 50% liquidity.
+  all_or_nothing              : 130.32 paise per 1,000 settled
+  greedy_cumulative           : 132.05 paise per 1,000 settled
+  removal_heuristic           : 135.69 paise per 1,000 settled
+
+[reconciliation_detection_accuracy]
+  SDG target : 8.10
+  Description: Proportion of deliberately injected reconciliation discrepancies detected by the automated reconciliation module.
+  Injected discrepancies     : 14
+  Detected                   : 14
+  Detection rate             : 100.0%
+    DUPLICATE                     : 2
+    AMOUNT_MISMATCH               : 4
+    MISSING_IN_LEDGER             : 3
+    MISSING_IN_STATEMENT          : 5
+
+[processing_throughput]
+  SDG target : 8.2
+  Description: Payments evaluated per second by the removal heuristic on local hardware (no AWS).
+  n=   100 payments : 1,195,214 payments/sec
+  n=   500 payments : 1,418,271 payments/sec
+  n=  1000 payments : 1,409,028 payments/sec
+  n=  5000 payments : 1,427,467 payments/sec
+  n= 10000 payments : 1,411,815 payments/sec
+
+----------------------------------------------------------------------
+SUMMARY
+----------------------------------------------------------------------
+
+1. The removal heuristic settles 29.3pp more payment value
+   than all-or-nothing under constrained liquidity (SDG 9.1, 9.5).
+2. 100.0% of deferred payments can settle in a subsequent
+   window when liquidity is replenished (SDG 9.1 -- resilience).
+3. Automated reconciliation detects 100.0% of injected
+   discrepancies without manual review (SDG 8.10).
+
+All numbers are reproducible: set SEED=2026 in sdg_report.py.
+======================================================================

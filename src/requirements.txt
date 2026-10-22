@@ -1,0 +1,4 @@
+# ==============================================================================
+# ClearPay: AWS Lambda Deployment Requirements (SAM)
+# Note: boto3 and botocore are natively provided in the AWS Lambda Python 3.12 runtime.
+# ==============================================================================

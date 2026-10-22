@@ -8,7 +8,8 @@
       "Parameters": {
         "FunctionName": "${CollectPendingFunctionArn}",
         "Payload": {
-          "start_time.$": "$$.Execution.StartTime"
+          "start_time.$": "$$.Execution.StartTime",
+          "run_id.$": "$.run_id"
         }
       },
       "ResultPath": "$.collection",

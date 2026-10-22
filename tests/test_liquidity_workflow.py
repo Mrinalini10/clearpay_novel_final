@@ -18,7 +18,8 @@ def test_workflow_starts_by_collecting_pending_payments():
     assert workflow["StartAt"] == "CollectPending"
     assert states["CollectPending"]["Next"] == "AnyPending"
     assert states["CollectPending"]["Parameters"]["Payload"] == {
-        "start_time.$": "$$.Execution.StartTime"
+        "start_time.$": "$$.Execution.StartTime",
+        "run_id.$": "$.run_id",
     }
 
 

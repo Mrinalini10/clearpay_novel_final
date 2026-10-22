@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -29,9 +30,15 @@ def read_frozen_batch(key):
 
 
 def handler(event, context):
+    # The demo run ID is already embedded in each API payment ID.  Filter on
+    # that ID rather than modifying the payment API or the DynamoDB schema.
+    run_id = event.get("run_id")
+    if not isinstance(run_id, str) or not re.fullmatch(r"[0-9a-f]{12}", run_id):
+        raise ValueError("A valid 12-character demo run_id is required")
+
     start = parse_iso(event["start_time"])
     cutoff = to_iso(start)
-    window_id = "W-" + start.strftime("%Y%m%dT%H%M%S")
+    window_id = "W-" + start.strftime("%Y%m%dT%H%M%S") + "-" + run_id
     key = f"windows/{window_id}/pending.json"
 
     # Acquire exclusive lease so two executions can't process the same window.
@@ -52,6 +59,7 @@ def handler(event, context):
             "FilterExpression": (
                 Attr("status").eq("PENDING")
                 & Attr("created_at").lte(cutoff)
+                & Attr("payment_id").begins_with(f"DEMO-{run_id}-")
             ),
         }
 
@@ -102,4 +110,5 @@ def handler(event, context):
         "s3_key": key,
         "count": len(frozen),
         "cutoff": cutoff,
+        "run_id": run_id,
     }

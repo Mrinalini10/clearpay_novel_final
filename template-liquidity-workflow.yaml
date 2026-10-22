@@ -47,6 +47,10 @@ Resources:
                 - s3:GetObject
                 - s3:PutObject
               Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}/windows/*"
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}"
 
   SettlePendingFunction:
     Type: AWS::Serverless::Function
@@ -103,6 +107,10 @@ Resources:
                 - s3:GetObject
                 - s3:PutObject
               Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}/windows/*"
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !Sub "arn:${AWS::Partition}:s3:::${DataBucketName}"
 
   LiquiditySettlementStateMachine:
     Type: AWS::Serverless::StateMachine

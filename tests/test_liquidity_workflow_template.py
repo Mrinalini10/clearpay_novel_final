@@ -115,3 +115,16 @@ def test_batch_workflow_remains_disabled_after_iam_changes():
     assert 'LIQUIDITY_BATCH_MODE: "1"' in text
     assert "ScheduleV2" not in text
     assert "Type: SQS" not in text
+
+
+def test_workflow_passes_demo_run_id_to_collector():
+    states = json.loads(WORKFLOW.read_text())["States"]
+    payload = states["CollectPending"]["Parameters"]["Payload"]
+    assert payload["run_id.$"] == "$.run_id"
+    assert payload["start_time.$"] == "$$.Execution.StartTime"
+
+
+def test_collector_and_settler_persist_s3_list_permission():
+    text = TEMPLATE.read_text()
+    assert text.count("- s3:ListBucket") == 2
+    assert text.count('arn:${AWS::Partition}:s3:::${DataBucketName}"') == 2

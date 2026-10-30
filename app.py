@@ -150,22 +150,69 @@ hr {
 # === cohesive_theme_override_end ===
 
 
-REGION = os.getenv("CLEARPAY_REGION", "ap-south-1")
-PROFILE = os.getenv("CLEARPAY_AWS_PROFILE", "clearpay-andrea")
-API_URL = os.getenv("CLEARPAY_API_URL", "https://h5snzmo5ta.execute-api.ap-south-1.amazonaws.com").rstrip("/")
-ACCOUNTS_TABLE = os.getenv("CLEARPAY_ACCOUNTS_TABLE", "clearpay-AccountsTable-3400X4MNWR0S")
-PAYMENTS_TABLE = os.getenv("CLEARPAY_PAYMENTS_TABLE", "clearpay-PaymentsTable-1HTN92EG5GI4J")
-LEDGER_TABLE = os.getenv("CLEARPAY_LEDGER_TABLE", "clearpay-LedgerTable-9B3EHPG2W9NO")
-BUCKET = os.getenv("CLEARPAY_DATA_BUCKET", "clearpay-data-134748918128-ap-south-1")
-STATE_MACHINE = os.getenv("CLEARPAY_STATE_MACHINE_ARN", "arn:aws:states:ap-south-1:134748918128:stateMachine:LiquiditySettlementStateMachine-Z8gTz79d0T71")
+def get_config_val(key: str, default: str = "") -> str:
+    """Retrieve configuration from st.secrets (flat or nested), os.environ, or fallback."""
+    try:
+        if hasattr(st, "secrets"):
+            if key in st.secrets:
+                return str(st.secrets[key])
+            if key.lower() in st.secrets:
+                return str(st.secrets[key.lower()])
+            for section in ("aws", "clearpay"):
+                if section in st.secrets and isinstance(st.secrets[section], dict):
+                    sec = st.secrets[section]
+                    if key in sec:
+                        return str(sec[key])
+                    if key.lower() in sec:
+                        return str(sec[key.lower()])
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
+
+REGION = get_config_val("CLEARPAY_REGION", "ap-south-1")
+API_URL = get_config_val("CLEARPAY_API_URL", "https://h5snzmo5ta.execute-api.ap-south-1.amazonaws.com").rstrip("/")
+ACCOUNTS_TABLE = get_config_val("CLEARPAY_ACCOUNTS_TABLE", "clearpay-AccountsTable-3400X4MNWR0S")
+PAYMENTS_TABLE = get_config_val("CLEARPAY_PAYMENTS_TABLE", "clearpay-PaymentsTable-1HTN92EG5GI4J")
+LEDGER_TABLE = get_config_val("CLEARPAY_LEDGER_TABLE", "clearpay-LedgerTable-9B3EHPG2W9NO")
+BUCKET = get_config_val("CLEARPAY_DATA_BUCKET", "clearpay-data-134748918128-ap-south-1")
+STATE_MACHINE = get_config_val("CLEARPAY_STATE_MACHINE_ARN", "arn:aws:states:ap-south-1:134748918128:stateMachine:LiquiditySettlementStateMachine-Z8gTz79d0T71")
 DEMO_BANKS = ("BANK_A", "BANK_B", "BANK_C")
-EXPECTED_ACCOUNT = os.getenv("CLEARPAY_AWS_ACCOUNT", "134748918128")
+EXPECTED_ACCOUNT = get_config_val("CLEARPAY_AWS_ACCOUNT", "134748918128")
 MAX_PAYMENTS = 10  # Avoid DynamoDB's 100-action limit in live demonstrations.
 
 
 def aws_session():
-    # Profile is used only by local Streamlit server, not sent to browser.
-    return boto3.Session(profile_name=PROFILE, region_name=REGION)
+    """Create a boto3 Session compatible with both local CLI and Streamlit Cloud secrets.
+    
+    1. Checks for explicit credentials via st.secrets or environment variables.
+    2. Falls back to local CLI profile if configured and available.
+    3. Falls back to default boto3 credential resolution.
+    """
+    access_key = get_config_val("AWS_ACCESS_KEY_ID", "")
+    secret_key = get_config_val("AWS_SECRET_ACCESS_KEY", "")
+    session_token = get_config_val("AWS_SESSION_TOKEN", "") or None
+    region = get_config_val("CLEARPAY_REGION", REGION)
+
+    # 1. Cloud deployment: Explicit IAM credentials in st.secrets / env vars
+    if access_key and secret_key:
+        return boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=session_token,
+            region_name=region,
+        )
+
+    # 2. Local development: Use local profile if available
+    profile = get_config_val("CLEARPAY_AWS_PROFILE", "clearpay-andrea")
+    if profile:
+        try:
+            return boto3.Session(profile_name=profile, region_name=region)
+        except (ProfileNotFound, BotoCoreError):
+            pass
+
+    # 3. Default fallback (e.g. EC2/ECS/IAM role or default credentials)
+    return boto3.Session(region_name=region)
 
 
 def ddb():
@@ -377,8 +424,10 @@ st.caption("Live AWS Settlement · Real payment submission · isolated AWS settl
 with st.sidebar:
     st.subheader("AWS connection")
     st.text(f"Region: {REGION}")
-    st.text(f"Profile: {PROFILE}")
-    api_key = st.text_input("API key", type="password", value=os.getenv("CLEARPAY_API_KEY", ""))
+    has_keys = bool(get_config_val("AWS_ACCESS_KEY_ID", ""))
+    auth_label = "Cloud Secrets" if has_keys else f"Profile ({get_config_val('CLEARPAY_AWS_PROFILE', 'clearpay-andrea')})"
+    st.text(f"Auth: {auth_label}")
+    api_key = st.text_input("API key", type="password", value=get_config_val("CLEARPAY_API_KEY", ""))
     st.divider()
     st.caption("This dashboard writes real demo payments and triggers the deployed AWS workflow. AWS usage may incur charges.")
 

@@ -22,13 +22,19 @@ aws_credentials
 credentials
 samconfig.toml
 
-# Secrets
+# Secrets & Configs
 .env
 .env.*
 !.env.example
 *.pem
 *.key
 *secret*.json
+.streamlit/
+secrets.toml
+
+# Backups & Temporary App Files
+app_backup_*.py
+app_before_live_dashboard.py
 
 # Mac
 .DS_Store
